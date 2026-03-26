@@ -31,7 +31,7 @@ A lightweight macOS floating task list that keeps your focus — always visible,
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pin.git
+git clone https://github.com/zhoupeng6d/pin.git
 cd pin
 bash install.sh
 ```
