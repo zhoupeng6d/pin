@@ -373,9 +373,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = .clear
         window.hasShadow = true
         window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         window.isMovableByWindowBackground = false
         window.hidesOnDeactivate = false
+        window.isRestorable = false  // 防止系统记住 Space 绑定
+        window.tabbingMode = .disallowed  // 禁用标签页，避免 Space 切换异常
 
         let x = UserDefaults.standard.double(forKey: "todo_wx")
         let y = UserDefaults.standard.double(forKey: "todo_wy")
