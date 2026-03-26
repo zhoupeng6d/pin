@@ -1,0 +1,11 @@
+# 编译产物
+pin
+Pin.icns
+Pin.iconset/
+Pin.app/
+
+# 临时文件
+_pin_icon_tmp.png
+
+# macOS
+.DS_Store
