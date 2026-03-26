@@ -1,34 +1,34 @@
 # Pin
 
-A lightweight macOS floating task list that keeps your focus — always visible, never in the way.
-
-**Pin** 是一个悬浮在桌面上的 macOS 每日任务清单，帮你随时找回专注力。
+一款轻量的 macOS 桌面悬浮任务清单，帮你随时找回专注力。
 
 ![macOS](https://img.shields.io/badge/macOS-12%2B-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.7%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Features
+[English](README_EN.md)
 
-- **Always on top** — floats above all windows, stays visible across every Space and full-screen app
-- **Frosted glass UI** — native macOS sidebar blur with a clean dark-blue-on-white design
-- **Add / complete / delete tasks** — checkbox with strikethrough, one-click delete
-- **Long-press to drag** — hold anywhere on the window for 0.1 s, then drag to reposition
-- **Menu bar icon** — left-click to toggle show/hide; right-click for options menu
-- **Auto-start on login** — one-click toggle in the right-click menu (uses Launch Agent)
-- **Persistent storage** — tasks survive restarts
-- **Zero dependencies** — single Swift source file, no Xcode project needed
+## 功能特点
 
-## Screenshot
+- **始终置顶** — 悬浮于所有窗口之上，切换桌面空间和全屏应用时依然可见
+- **磨砂玻璃界面** — 原生 macOS 侧边栏模糊效果，深蓝配色，简洁不干扰
+- **任务管理** — 添加、勾选完成（带删除线）、一键删除
+- **长按拖动** — 在窗口任意位置长按 0.1 秒即可拖动移位
+- **菜单栏图标** — 左键切换显示/隐藏，右键打开选项菜单
+- **开机自启** — 右键菜单一键开关，基于 Launch Agent 实现
+- **数据持久化** — 任务数据本地保存，重启后不丢失
+- **零依赖** — 单个 Swift 源文件，无需 Xcode 工程
 
-<!-- Add screenshot here -->
+## 截图
 
-## Requirements
+<!-- 在此处添加截图 -->
 
-- macOS 12 Monterey or later
-- Swift 5.7+ (`xcode-select --install` to get Command Line Tools)
+## 系统要求
 
-## Install
+- macOS 12 Monterey 及以上
+- Swift 5.7+（运行 `xcode-select --install` 安装命令行工具）
+
+## 安装
 
 ```bash
 git clone https://github.com/zhoupeng6d/pin.git
@@ -36,67 +36,68 @@ cd pin
 bash install.sh
 ```
 
-This compiles the source and installs `Pin.app` to `~/Applications/`. Then search **"Pin"** in Spotlight to launch.
+脚本会自动编译并将 `Pin.app` 安装到 `~/Applications/`，之后在 Spotlight 搜索 **Pin** 即可启动。
 
-## App Icon
+## 应用图标
 
-The default icon (dark blue background + white pin) is auto-generated from the SF Symbol used in the menu bar, so they always match.
+默认图标（深蓝背景 + 白色图钉）由脚本自动生成，与菜单栏图标风格保持一致。
 
-To regenerate and reinstall:
+重新生成并安装：
 
 ```bash
 bash gen_icon.sh
 ```
 
-To use your own custom icon instead, prepare a 1024×1024 PNG:
+使用自定义图标，准备一张 1024×1024 的 PNG 图片：
 
 ```bash
-bash create_icon.sh your_icon.png
+bash create_icon.sh 你的图片.png
 bash install.sh
 ```
 
-## Usage
+## 使用说明
 
-| Action | How |
+| 操作 | 方式 |
 |---|---|
-| Add a task | Click the input field at the bottom, type, press **Return** |
-| Complete a task | Click the checkbox — title gets a strikethrough |
-| Delete a task | Click the **×** button on the right |
-| Move the window | Long-press (0.1 s) anywhere, then drag |
-| Hide / show | Left-click the menu bar icon, or click **✕** in the title bar |
-| Auto-start toggle | Right-click the menu bar icon → **开机自启** |
-| Quit | Right-click the menu bar icon → **退出** |
+| 添加任务 | 点击底部输入框，输入内容后按 **回车** |
+| 完成任务 | 点击复选框，标题显示删除线 |
+| 删除任务 | 点击右侧 **×** 按钮 |
+| 移动窗口 | 在窗口任意位置长按 0.1 秒后拖动 |
+| 显示/隐藏 | 左键点击菜单栏图标，或点击标题栏 **✕** |
+| 开机自启 | 右键菜单栏图标 → 开机自启 |
+| 退出应用 | 右键菜单栏图标 → 退出 |
 
-## Development
+## 开发
 
 ```bash
-bash run.sh   # compile (if needed) and launch
+bash run.sh   # 源码有更新时自动重新编译并启动
 ```
 
-## How It Works
+## 技术实现
 
-| Topic | Detail |
+| 主题 | 说明 |
 |---|---|
-| Window | `NSPanel` subclass with `canBecomeKey = true` — allows text input in a borderless, non-activating panel |
-| Always on top | `window.level = .floating` + `.canJoinAllSpaces` + `.stationary` + `.fullScreenAuxiliary` |
-| UI | `NSVisualEffectView` (`.sidebar` material, forced `.aqua`) + manual frame-based row layout |
-| Long-press drag | `NSEvent` local monitors — 0.1 s timer on `mouseDown`, `deltaX/deltaY` applied on `leftMouseDragged` |
-| Persistence | `UserDefaults` → `~/Library/Preferences/pin.plist` (key: `pin_v1`) |
-| Auto-start | Launch Agent plist → `~/Library/LaunchAgents/com.zhoupeng.pin.plist`, loaded via `launchctl bootstrap` |
+| 窗口 | 继承 `NSPanel` 并重写 `canBecomeKey = true`，解决 borderless 窗口无法接收键盘输入的问题 |
+| 始终置顶 | `window.level = .floating` + `.canJoinAllSpaces` + `.stationary` + `.fullScreenAuxiliary` |
+| 界面 | `NSVisualEffectView`（`.sidebar` 材质，强制 `.aqua` 外观）+ 手动 frame 布局 |
+| 长按拖动 | `NSEvent` 本地事件监听，`mouseDown` 触发 0.1 秒计时器，`leftMouseDragged` 通过 `deltaX/deltaY` 更新窗口位置 |
+| 数据存储 | `UserDefaults` → `~/Library/Preferences/pin.plist`（key: `pin_v1`） |
+| 开机自启 | 写入 `~/Library/LaunchAgents/com.zhoupeng.pin.plist`，通过 `launchctl bootstrap` 加载 |
 
-## Project Structure
+## 项目结构
 
 ```
 pin/
-├── pin.swift          # Entire app — ~500 lines, no dependencies
-├── run.sh             # Build-if-needed + launch script
-├── install.sh         # Build + package as Pin.app → ~/Applications/
-├── gen_icon.sh        # Auto-generate app icon (dark blue + white pin.fill) and reinstall
-├── create_icon.sh     # Convert a custom PNG → Pin.icns for the app bundle
+├── pin.swift          # 应用全部代码，约 500 行，零外部依赖
+├── run.sh             # 开发用启动脚本（按需编译）
+├── install.sh         # 编译并打包为 Pin.app 安装到 ~/Applications/
+├── gen_icon.sh        # 自动生成应用图标并重新安装
+├── create_icon.sh     # 将自定义 PNG 转换为 Pin.icns
 ├── README.md
+├── README_EN.md
 └── LICENSE
 ```
 
-## License
+## 许可证
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — 详见 [LICENSE](LICENSE)
