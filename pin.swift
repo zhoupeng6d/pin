@@ -51,6 +51,18 @@ class TodoStore {
         save()
     }
     func item(id: String) -> TodoItem? { items.first { $0.id == id } }
+
+    /// 新的一天自动清除已完成任务
+    func cleanCompletedIfNewDay() {
+        let today = Calendar.current.startOfDay(for: Date())
+        let lastClean = (UserDefaults.standard.object(forKey: "pin_last_clean") as? Date)
+                        .map { Calendar.current.startOfDay(for: $0) }
+                        ?? Date.distantPast
+        guard today > lastClean else { return }
+        items.removeAll { $0.completed }
+        save()
+        UserDefaults.standard.set(today, forKey: "pin_last_clean")
+    }
 }
 
 // MARK: - FloatingPanel
@@ -331,6 +343,7 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        store.cleanCompletedIfNewDay()   // 新的一天自动清除已完成任务
         refreshDate()
         view.addSubview(bg)
         bg.addSubview(headerRow); bg.addSubview(taskContainer); bg.addSubview(inputRow)
