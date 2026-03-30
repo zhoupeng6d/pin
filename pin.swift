@@ -2,7 +2,7 @@
 
 import Cocoa
 
-// MARK: - Color Palette（深蓝色主题）
+// MARK: - Color Palette
 
 private let ink     = NSColor(red: 0.10, green: 0.22, blue: 0.45, alpha: 1.0)
 private let inkMid  = ink.withAlphaComponent(0.50)
@@ -15,9 +15,7 @@ struct TodoItem: Codable {
     var id: String
     var title: String
     var completed: Bool
-    init(title: String) {
-        id = UUID().uuidString; self.title = title; completed = false
-    }
+    init(title: String) { id = UUID().uuidString; self.title = title; completed = false }
 }
 
 class TodoStore {
@@ -44,36 +42,81 @@ class TodoStore {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].completed.toggle(); save()
     }
+    func updateTitle(id: String, title: String) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        items[i].title = title; save()
+    }
+    func reorder(ids: [String]) {
+        items = ids.compactMap { id in items.first { $0.id == id } }
+        save()
+    }
     func item(id: String) -> TodoItem? { items.first { $0.id == id } }
 }
 
-// MARK: - FloatingPanel（解决 borderless 窗口无法成为 key window 的问题）
+// MARK: - FloatingPanel
 
 class FloatingPanel: NSPanel {
-    override var canBecomeKey: Bool { true }   // borderless 默认 false，必须覆盖
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+// MARK: - Grip View（行拖拽手柄）
+
+class GripView: NSView {
+    var onDragStart: (() -> Void)?
+    var onDragMove: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let lbl = NSTextField(labelWithString: "⠿")
+        lbl.font = NSFont.systemFont(ofSize: 9)
+        lbl.textColor = inkDim
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(lbl)
+        NSLayoutConstraint.activate([
+            lbl.centerXAnchor.constraint(equalTo: centerXAnchor),
+            lbl.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+    override func mouseDown(with e: NSEvent)    { onDragStart?() }
+    override func mouseDragged(with e: NSEvent) { onDragMove?(NSEvent.mouseLocation.y) }
+    override func mouseUp(with e: NSEvent)      { onDragEnd?() }
 }
 
 // MARK: - Task Row
 
-class TaskRow: NSView {
+class TaskRow: NSView, NSTextFieldDelegate {
+    let itemId: String
     private let store = TodoStore.shared
-    private let itemId: String
     private let check = NSButton()
-    private let label = NSTextField(labelWithString: "")
+    private let label = NSTextField()
     private let del   = NSButton()
+    let grip = GripView()
     var onChange: (() -> Void)?
 
     init(item: TodoItem) {
         itemId = item.id
         super.init(frame: .zero)
+
+        grip.translatesAutoresizingMaskIntoConstraints = false
+
         check.setButtonType(.switch)
         check.title = ""
         check.target = self; check.action = #selector(didToggle)
         check.translatesAutoresizingMaskIntoConstraints = false
 
+        label.isBordered = false
+        label.drawsBackground = false
+        label.focusRingType = .none
         label.font = NSFont.systemFont(ofSize: 12)
+        label.isEditable = true
+        label.isSelectable = true
         label.lineBreakMode = .byTruncatingTail
+        label.delegate = self
         label.translatesAutoresizingMaskIntoConstraints = false
 
         del.title = "×"; del.isBordered = false
@@ -83,16 +126,23 @@ class TaskRow: NSView {
         del.translatesAutoresizingMaskIntoConstraints = false
 
         render(item: item)
-        [check, label, del].forEach { addSubview($0) }
+        [grip, check, label, del].forEach { addSubview($0) }
 
         NSLayoutConstraint.activate([
-            check.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            grip.leadingAnchor.constraint(equalTo: leadingAnchor),
+            grip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            grip.widthAnchor.constraint(equalToConstant: 14),
+            grip.heightAnchor.constraint(equalToConstant: 24),
+
+            check.leadingAnchor.constraint(equalTo: grip.trailingAnchor, constant: 2),
             check.centerYAnchor.constraint(equalTo: centerYAnchor),
             check.widthAnchor.constraint(equalToConstant: 14),
             check.heightAnchor.constraint(equalToConstant: 14),
+
             label.leadingAnchor.constraint(equalTo: check.trailingAnchor, constant: 7),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.trailingAnchor.constraint(equalTo: del.leadingAnchor, constant: -4),
+
             del.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             del.centerYAnchor.constraint(equalTo: centerYAnchor),
             del.widthAnchor.constraint(equalToConstant: 14),
@@ -121,11 +171,36 @@ class TaskRow: NSView {
         if let item = store.item(id: itemId) { render(item: item) }
     }
     @objc private func didDelete() { onChange?() }
+
+    // MARK: - NSTextFieldDelegate（任务内联编辑）
+
+    func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        if sel == #selector(NSResponder.insertNewline(_:)) {
+            window?.makeFirstResponder(nil); return true
+        }
+        if sel == #selector(NSResponder.cancelOperation(_:)) {
+            if let item = store.item(id: itemId) { render(item: item) }
+            window?.makeFirstResponder(nil); return true
+        }
+        return false
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        let t = label.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty {
+            if let item = store.item(id: itemId) { render(item: item) }
+        } else {
+            store.updateTitle(id: itemId, title: t)
+            if let item = store.item(id: itemId) { render(item: item) }
+        }
+    }
 }
 
-// MARK: - Drag Handle
+// MARK: - Drag Handle（标题栏，立即拖拽）
 
 class DragHandle: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func mouseDown(with e: NSEvent) { window?.performDrag(with: e) }
     override func hitTest(_ p: NSPoint) -> NSView? {
         for sub in subviews.reversed() {
             if let hit = sub.hitTest(sub.convert(p, from: self)) { return hit }
@@ -139,16 +214,27 @@ class DragHandle: NSView {
 class TodoVC: NSViewController, NSTextFieldDelegate {
     private let store = TodoStore.shared
 
+    // 日期标签（提取为属性，每次显示时刷新）
+    private let dateLabel: NSTextField = {
+        let f = NSTextField(labelWithString: "")
+        f.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        f.textColor = inkMid
+        f.translatesAutoresizingMaskIntoConstraints = false
+        return f
+    }()
+
+    private func refreshDate() {
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "zh_CN"); fmt.dateFormat = "M月d日 E"
+        dateLabel.stringValue = fmt.string(from: Date())
+    }
+
     // 亮色磨砂玻璃背景
     private lazy var bg: NSVisualEffectView = {
         let v = NSVisualEffectView()
-        v.material = .sidebar
-        v.blendingMode = .behindWindow
-        v.state = .active
-        v.appearance = NSAppearance(named: .aqua)   // 强制 light，保证亮色
-        v.wantsLayer = true
-        v.layer?.cornerRadius = 10
-        v.layer?.masksToBounds = true
+        v.material = .sidebar; v.blendingMode = .behindWindow; v.state = .active
+        v.appearance = NSAppearance(named: .aqua)
+        v.wantsLayer = true; v.layer?.cornerRadius = 10; v.layer?.masksToBounds = true
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
@@ -157,13 +243,6 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
     private lazy var headerRow: NSView = {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
-
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "zh_CN"); fmt.dateFormat = "M月d日 E"
-        let date = NSTextField(labelWithString: fmt.string(from: Date()))
-        date.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        date.textColor = inkMid
-        date.translatesAutoresizingMaskIntoConstraints = false
 
         let quit = NSButton()
         quit.title = "✕"; quit.isBordered = false
@@ -175,15 +254,15 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         let drag = DragHandle()
         drag.translatesAutoresizingMaskIntoConstraints = false
 
-        [drag, date, quit].forEach { v.addSubview($0) }
+        [drag, dateLabel, quit].forEach { v.addSubview($0) }
         NSLayoutConstraint.activate([
             v.heightAnchor.constraint(equalToConstant: 28),
             drag.topAnchor.constraint(equalTo: v.topAnchor),
             drag.bottomAnchor.constraint(equalTo: v.bottomAnchor),
             drag.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             drag.trailingAnchor.constraint(equalTo: v.trailingAnchor),
-            date.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 10),
-            date.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            dateLabel.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 10),
+            dateLabel.centerYAnchor.constraint(equalTo: v.centerYAnchor),
             quit.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -8),
             quit.centerYAnchor.constraint(equalTo: v.centerYAnchor),
             quit.widthAnchor.constraint(equalToConstant: 16),
@@ -191,15 +270,13 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         return v
     }()
 
-    // 任务容器（普通 NSView，高度由 taskContainerH 控制）
+    // 任务容器
     private lazy var taskContainer: NSView = {
-        let v = NSView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
+        let v = NSView(); v.translatesAutoresizingMaskIntoConstraints = false; return v
     }()
     private var taskContainerH: NSLayoutConstraint!
 
-    // 输入行（常驻底部）
+    // 输入行
     private lazy var inputRow: NSView = {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -210,10 +287,8 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         icon.translatesAutoresizingMaskIntoConstraints = false
 
         inputField.font = NSFont.systemFont(ofSize: 12)
-        inputField.isBordered = false
-        inputField.drawsBackground = false
-        inputField.textColor = ink
-        inputField.focusRingType = .none
+        inputField.isBordered = false; inputField.drawsBackground = false
+        inputField.textColor = ink; inputField.focusRingType = .none
         inputField.delegate = self
         inputField.placeholderAttributedString = NSAttributedString(
             string: "添加任务，回车确认",
@@ -222,8 +297,7 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         inputField.translatesAutoresizingMaskIntoConstraints = false
 
         let line = NSView()
-        line.wantsLayer = true
-        line.layer?.backgroundColor = inkFade.cgColor
+        line.wantsLayer = true; line.layer?.backgroundColor = inkFade.cgColor
         line.translatesAutoresizingMaskIntoConstraints = false
 
         [icon, inputField, line].forEach { v.addSubview($0) }
@@ -244,8 +318,12 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         return v
     }()
 
-    private let inputField = NSTextField()   // FloatingPanel.canBecomeKey=true 后普通 NSTextField 即可
+    private let inputField = NSTextField()
     private var taskRows: [(id: String, view: TaskRow)] = []
+
+    // 行拖拽排序状态
+    private var draggingIdx: Int? = nil
+    private var dragStartScreenY: CGFloat = 0
 
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 60))
@@ -253,41 +331,35 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        refreshDate()
         view.addSubview(bg)
-        bg.addSubview(headerRow)
-        bg.addSubview(taskContainer)
-        bg.addSubview(inputRow)
+        bg.addSubview(headerRow); bg.addSubview(taskContainer); bg.addSubview(inputRow)
 
         taskContainerH = taskContainer.heightAnchor.constraint(equalToConstant: 0)
-
         NSLayoutConstraint.activate([
             bg.topAnchor.constraint(equalTo: view.topAnchor),
             bg.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bg.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bg.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
             headerRow.topAnchor.constraint(equalTo: bg.topAnchor, constant: 2),
             headerRow.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
             headerRow.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
-
             taskContainer.topAnchor.constraint(equalTo: headerRow.bottomAnchor),
             taskContainer.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
             taskContainer.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
             taskContainerH,
-
             inputRow.topAnchor.constraint(equalTo: taskContainer.bottomAnchor),
             inputRow.leadingAnchor.constraint(equalTo: bg.leadingAnchor),
             inputRow.trailingAnchor.constraint(equalTo: bg.trailingAnchor),
             inputRow.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -2),
-
             view.widthAnchor.constraint(equalToConstant: 220),
         ])
-
         for item in store.items { appendRow(item: item) }
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        refreshDate()
         resize()
     }
 
@@ -302,13 +374,37 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
             self.store.remove(id: itemId)
             row.removeFromSuperview()
             self.taskRows.removeAll { $0.id == itemId }
-            self.relayoutRows()
-            self.resize()
+            self.relayoutRows(); self.resize()
         }
+
+        // 行拖拽排序
+        row.grip.onDragStart = { [weak self, weak row] in
+            guard let self, let row else { return }
+            guard let idx = self.taskRows.firstIndex(where: { $0.id == row.itemId }) else { return }
+            self.draggingIdx = idx
+            self.dragStartScreenY = NSEvent.mouseLocation.y
+        }
+        row.grip.onDragMove = { [weak self] screenY in
+            guard let self, let from = self.draggingIdx else { return }
+            let n = self.taskRows.count
+            let delta = self.dragStartScreenY - screenY   // 向上拖为正
+            let shift = Int(round(delta / 24.0))
+            let to = max(0, min(n - 1, from + shift))
+            guard to != from else { return }
+            self.taskRows.insert(self.taskRows.remove(at: from), at: to)
+            self.draggingIdx = to
+            self.dragStartScreenY = screenY
+            self.relayoutRows()
+        }
+        row.grip.onDragEnd = { [weak self] in
+            guard let self else { return }
+            self.draggingIdx = nil
+            self.store.reorder(ids: self.taskRows.map { $0.id })
+        }
+
         relayoutRows()
     }
 
-    // 手动定位所有行（macOS y 轴向上，第一行在最上方）
     private func relayoutRows() {
         let n = taskRows.count
         taskContainerH.constant = CGFloat(n) * 24
@@ -321,21 +417,18 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
         guard let window = view.window else { return }
         let h: CGFloat = 28 + CGFloat(taskRows.count) * 24 + 28 + 4
         var f = window.frame
-        f.origin.y += f.height - h
-        f.size.height = h
+        f.origin.y += f.height - h; f.size.height = h
         window.setFrame(f, display: true, animate: false)
-        view.needsLayout = true
-        view.layoutSubtreeIfNeeded()
+        view.needsLayout = true; view.layoutSubtreeIfNeeded()
     }
 
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+    func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
         guard sel == #selector(NSResponder.insertNewline(_:)) else { return false }
         let t = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return true }
         store.add(t); inputField.stringValue = ""
         if let last = store.items.last { appendRow(item: last) }
-        resize()
-        return true
+        resize(); return true
     }
 
     @objc private func hideWindow() { view.window?.orderOut(nil) }
@@ -346,11 +439,6 @@ class TodoVC: NSViewController, NSTextFieldDelegate {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var window: FloatingPanel!
     var statusItem: NSStatusItem!
-
-    // 长按拖动
-    private var dragTimer: Timer?
-    private var isDragging = false
-    private var monitors: [Any] = []
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // ── 菜单栏图标 ──────────────────────────────────────
@@ -376,8 +464,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         window.isMovableByWindowBackground = false
         window.hidesOnDeactivate = false
-        window.isRestorable = false  // 防止系统记住 Space 绑定
-        window.tabbingMode = .disallowed  // 禁用标签页，避免 Space 切换异常
+        window.isRestorable = false
+        window.tabbingMode = .disallowed
 
         let x = UserDefaults.standard.double(forKey: "todo_wx")
         let y = UserDefaults.standard.double(forKey: "todo_wy")
@@ -391,8 +479,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(savePos),
             name: NSWindow.didMoveNotification, object: window
         )
-
-        setupDragMonitors()
     }
 
     // MARK: - 菜单栏点击
@@ -424,7 +510,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - 开机自启（Launch Agent）
 
-    private let launchLabel   = "com.zhoupeng.pin"
+    private let launchLabel = "com.zhoupeng.pin"
     private var plistPath: String {
         NSHomeDirectory() + "/Library/LaunchAgents/\(launchLabel).plist"
     }
@@ -437,11 +523,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func enableAutoLaunch() {
-        // 取当前可执行文件的绝对路径
         let rawPath = CommandLine.arguments[0]
         let binary  = rawPath.hasPrefix("/") ? rawPath
                     : FileManager.default.currentDirectoryPath + "/" + rawPath
-
         let plist = """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -486,47 +570,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(Double(window.frame.origin.y), forKey: "todo_wy")
     }
 
-    // MARK: - 长按拖动
-
-    private func setupDragMonitors() {
-        let down = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            guard let self, self.window.isVisible,
-                  self.window.frame.contains(NSEvent.mouseLocation) else { return event }
-            let t = Timer(timeInterval: 0.10, repeats: false) { [weak self] _ in
-                guard let self else { return }
-                self.isDragging = true
-                NSCursor.openHand.push()
-            }
-            RunLoop.main.add(t, forMode: .common)
-            self.dragTimer = t
-            return event
-        }
-
-        let drag = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDragged) { [weak self] event in
-            guard let self, self.isDragging else { return event }
-            var o = self.window.frame.origin
-            o.x += event.deltaX
-            o.y -= event.deltaY
-            self.window.setFrameOrigin(o)
-            return nil   // 消费事件，防止视图处理拖拽
-        }
-
-        let up = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            guard let self else { return event }
-            self.dragTimer?.invalidate()
-            self.dragTimer = nil
-            if self.isDragging {
-                self.isDragging = false
-                NSCursor.pop()
-                self.savePos()
-            }
-            return event
-        }
-
-        monitors = [down, drag, up].compactMap { $0 }
-    }
-
-    // 窗口隐藏时不退出 app，保留菜单栏图标
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
 }
 
